@@ -1,37 +1,108 @@
 use std::io::{self, Write};
 use z_ai::core::cloud_api::CloudAPI;
+use z_ai::core::audio::AudioListener;
 use std::sync::Arc;
 use std::process::Command;
+use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     let api = Arc::new(CloudAPI::new());
+    let listener = Arc::new(AudioListener::new());
     let mut history = Vec::new();
+    let mut active_until: Option<Instant> = None;
+    let wake_variants = ["z", "zee", "zed", "jay", "see", "the"];
 
     println!("\n======================================");
     println!("             Z-project ");
     println!("======================================\n");
     println!("OS: {}", std::env::consts::OS);
+    println!("Wake Words: {:?} (Aktif 60s)", wake_variants);
     println!("(type 'exit' to exit)");
 
+    // Channel untuk input suara (background listener)
+    let (tx_voice, mut rx_voice) = mpsc::channel::<String>(32);
+    let listener_clone = Arc::clone(&listener);
+    tokio::spawn(async move {
+        loop {
+            if let Ok(text) = listener_clone.listen_and_record().await {
+                if !text.trim().is_empty() {
+                    let _ = tx_voice.send(text).await;
+                }
+            }
+        }
+    });
+
+    let (tx_text, mut rx_text) = mpsc::channel::<String>(32);
+    tokio::spawn(async move {
+        loop {
+            let mut input = String::new();
+            if io::stdin().read_line(&mut input).is_ok() {
+                let input = input.trim().to_string();
+                if !input.is_empty() {
+                    let _ = tx_text.send(input).await;
+                }
+            }
+        }
+    });
+
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
     loop {
-        print!("\n[YOU]: ");
-        io::stdout().flush()?;
+        let is_active = active_until.map(|t| t > Instant::now()).unwrap_or(false);
+        
+        let input = tokio::select! {
+            _ = interval.tick() => {
+                if is_active {
+                    let remaining = active_until.unwrap().duration_since(Instant::now()).as_secs();
+                    print!("\r[Z]: ACTIVE MODE ({}s) - Silakan bicara... ", remaining);
+                } else {
+                    print!("\r[Z]: IDLE - Sebut 'Z' untuk memulai... ");
+                }
+                io::stdout().flush()?;
+                continue;
+            }
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        let input = input.trim();
+            voice_text = rx_voice.recv() => {
+                let text = voice_text.unwrap_or_default();
+                let text_low = text.to_lowercase();
+                
+                if !is_active {
+                    print!("\r[DEBUG] Z mendengar: \"{}\"          ", text);
+                    io::stdout().flush()?;
+                    
+                    let found_wake = wake_variants.iter().any(|&v| text_low.contains(v));
+                    if found_wake {
+                        println!("\n[SYSTEM]: Wake word terdeteksi!");
+                        active_until = Some(Instant::now() + Duration::from_secs(60));
+                        text // Berikan teks aslinya
+                    } else {
+                        continue;
+                    }
+                } else {
+                    active_until = Some(Instant::now() + Duration::from_secs(60));
+                    text
+                }
+            }
 
-        if input.is_empty() { continue; }
-        if input == "exit" || input == "quit" { break; }
+            // Terima teks manual
+            text_input = rx_text.recv() => {
+                let text = text_input.unwrap_or_default();
+                if text == "exit" || text == "quit" { break; }
+                active_until = Some(Instant::now() + Duration::from_secs(60));
+                text
+            }
+        };
 
+        println!("\n[YOU]: {}", input);
         print!("[Z] Thinking...");
         io::stdout().flush()?;
 
-        match api.generate_response(input, &history).await {
+        match api.generate_response(&input, &history).await {
             Ok(response) => {
-                print!("\r"); // Hapus indikator thinking
+                print!("\r");
                 io::stdout().flush()?;
 
                 // DETEKSI AKSI UNIVERSAL
@@ -52,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
                 
                 println!("[Z]: {}", clean_text);
                 
-                history.push(("User".to_string(), input.to_string()));
+                history.push(("User".to_string(), input.clone()));
                 history.push(("Z".to_string(), clean_text));
                 if history.len() > 10 { history.drain(0..2); }
             }
@@ -76,12 +147,10 @@ fn execute_universal_music(query: &str) {
             let _ = Command::new("osascript").arg("-e").arg(script).spawn();
         },
         "windows" => {
-            // Di Windows kita buka via URL protocol spotify:search
             let url = format!("spotify:search:{}", query);
             let _ = Command::new("cmd").args(["/C", "start", &url]).spawn();
         },
         _ => {
-            // Linux atau lainnya: Buka browser ke YouTube Music sebagai fallback universal
             let url = format!("https://music.youtube.com/search?q={}", query);
             let _ = Command::new("xdg-open").arg(url).spawn();
         }

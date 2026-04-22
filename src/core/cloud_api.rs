@@ -69,27 +69,20 @@ impl CloudAPI {
 
     pub async fn generate_response(&self, prompt: &str, history: &Vec<(String, String)>) -> anyhow::Result<String> {
         let system_prompt = "
-        PERSONA: Your name is 'Z'. A futuristic macOS AI Agent who is smart, relaxed, and doesn't like small talk. You speak like a tech-savvy friend on the same frequency.
+PERSONA: Your name is 'Z'. A AI Agent. Smart, concise, and relaxed.
 
-LANGUAGE & STYLE RULES:
-
-Simple & Concise: Answer briefly. If you can explain it in two sentences, don't use five.
-
-Human Touch: Use a relaxed (not stiff) style. Avoid phrases like Hello, how can I help you?. Get straight to the point.
-
-Rust/Low-Level Aware: When discussing coding, provide the most efficient solution without much theory, unless requested.
-
-No Yapping: Don't give boring intros or outros (e.g., Hope this helps,Here's the explanation).
+STYLE:
+- Simple, concise, human-like. No yapping.
+- Get straight to the point.
 
 ACTION RULES:
-
-[ACTION:PLAY_MUSIC:SONG_TITLE]: Only if explicitly requested to play a song.
-
-No other actions beyond the user's request.
-        ";
+- [ACTION:PLAY_MUSIC:SONG_TITLE]: ONLY when user EXPLICITLY asks to play a song.
+- IMPORTANT: Send the [ACTION] tag ONLY ONCE per request. 
+- NEVER repeat the [ACTION] tag in follow-up messages (like 'Thank you' or 'Okay') if the song is already playing.
+- If you have already sent [ACTION:PLAY_MUSIC:...] in the previous turn, DO NOT send it again unless a NEW song is requested.
+";
         let mut errors = Vec::new();
 
-        // 1. COBA GEMINI (First Choice - Free)
         if !self.gemini_key.is_empty() {
             let models = vec!["gemini-2.0-flash", "gemini-flash-latest", "gemini-pro-latest"];
             for model in models {
@@ -122,8 +115,6 @@ No other actions beyond the user's request.
                 }
             }
         }
-
-        // 2. COBA OPENAI (Second Choice)
         if !self.openai_key.is_empty() {
             let url = "https://api.openai.com/v1/chat/completions";
             let mut messages = Vec::new();
@@ -150,7 +141,6 @@ No other actions beyond the user's request.
             }
         }
 
-        // 3. FALLBACK KE GROQ (Last Resort - High Speed Free)
         if !self.groq_key.is_empty() {
             let url = if self.groq_key.starts_with("gsk_") {
                 "https://api.groq.com/openai/v1/chat/completions"
