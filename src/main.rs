@@ -22,7 +22,6 @@ async fn main() -> anyhow::Result<()> {
     println!("Wake Words: {:?} (Aktif 60s)", wake_variants);
     println!("(type 'exit' to exit)");
 
-    // Channel untuk input suara (background listener)
     let (tx_voice, mut rx_voice) = mpsc::channel::<String>(32);
     let listener_clone = Arc::clone(&listener);
     tokio::spawn(async move {
@@ -68,26 +67,40 @@ async fn main() -> anyhow::Result<()> {
             voice_text = rx_voice.recv() => {
                 let text = voice_text.unwrap_or_default();
                 let text_low = text.to_lowercase();
+                let trimmed = text_low.trim();
                 
+                let hallucinations = ["thank you", "thanks for watching", "subtitles by", "please subscribe", "thank you.", "thanks for watching."];
+                if hallucinations.iter().any(|&h| trimmed == h) {
+                    continue; 
+                }
+
+                if trimmed.split_whitespace().count() < 2 && !is_active && !wake_variants.iter().any(|&v| trimmed.contains(v)) {
+                    continue;
+                }
+
                 if !is_active {
                     print!("\r[DEBUG] Z mendengar: \"{}\"          ", text);
                     io::stdout().flush()?;
                     
                     let found_wake = wake_variants.iter().any(|&v| text_low.contains(v));
                     if found_wake {
+                        if std::env::consts::OS == "macos" {
+                            let _ = Command::new("afplay").arg("/System/Library/Sounds/Tink.aiff").spawn();
+                        }
+                        
                         println!("\n[SYSTEM]: Wake word terdeteksi!");
                         active_until = Some(Instant::now() + Duration::from_secs(60));
-                        text // Berikan teks aslinya
+                        text 
                     } else {
                         continue;
                     }
                 } else {
+                    println!("\n[YOU (Voice)]: {}", text);
                     active_until = Some(Instant::now() + Duration::from_secs(60));
                     text
                 }
             }
 
-            // Terima teks manual
             text_input = rx_text.recv() => {
                 let text = text_input.unwrap_or_default();
                 if text == "exit" || text == "quit" { break; }
@@ -97,6 +110,11 @@ async fn main() -> anyhow::Result<()> {
         };
 
         println!("\n[YOU]: {}", input);
+        
+        if std::env::consts::OS == "macos" {
+            let _ = Command::new("afplay").arg("/System/Library/Sounds/Pop.aiff").spawn();
+        }
+        
         print!("[Z] Thinking...");
         io::stdout().flush()?;
 
@@ -105,23 +123,37 @@ async fn main() -> anyhow::Result<()> {
                 print!("\r");
                 io::stdout().flush()?;
 
-                // DETEKSI AKSI UNIVERSAL
                 if response.contains("[ACTION:PLAY_MUSIC:") {
                     if let Some(start) = response.find("[ACTION:PLAY_MUSIC:") {
                         if let Some(end) = response[start..].find("]") {
                             let song_title = &response[start + 19 .. start + end];
-                            execute_universal_music(song_title);
+                            execute_universal_music("PLAY", song_title);
                         }
                     }
+                } else if response.contains("[ACTION:PAUSE_MUSIC]") {
+                    execute_universal_music("PAUSE", "");
+                } else if response.contains("[ACTION:STOP_MUSIC]") {
+                    execute_universal_music("STOP", "");
                 }
 
-                let clean_text = if let Some(idx) = response.find("[ACTION:") {
+                let mut clean_text = if let Some(idx) = response.find("[ACTION:") {
                     response[..idx].trim().to_string()
                 } else {
                     response.clone()
                 };
                 
-                println!("[Z]: {}", clean_text);
+                if clean_text.is_empty() && response.contains("[ACTION:") {
+                    clean_text = "Oke, sudah.".to_string();
+                }
+                
+                if !clean_text.is_empty() {
+                    println!("[Z]: {}", clean_text);
+                    let listener_tts = Arc::clone(&listener);
+                    let text_to_speak = clean_text.clone();
+                    tokio::spawn(async move {
+                        let _ = listener_tts.speak(&text_to_speak).await;
+                    });
+                }
                 
                 history.push(("User".to_string(), input.clone()));
                 history.push(("Z".to_string(), clean_text));
@@ -137,22 +169,44 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn execute_universal_music(query: &str) {
+fn execute_universal_music(action: &str, query: &str) {
     let os = std::env::consts::OS;
-    println!("\n--- AGENT ACTION: Mencari '{}' di {} ---", query, os);
-
-    match os {
-        "macos" => {
-            let script = format!("tell application \"Spotify\" to play track \"spotify:search:{}\"", query);
-            let _ = Command::new("osascript").arg("-e").arg(script).spawn();
+    
+    match action {
+        "PLAY" => {
+            println!("\n--- AGENT ACTION: Memutar '{}' di {} ---", query, os);
+            match os {
+                "macos" => {
+                    let script = format!("tell application \"Spotify\" to play track \"spotify:search:{}\"", query);
+                    let _ = Command::new("osascript").arg("-e").arg(script).spawn();
+                },
+                "linux" => {
+                    let _ = Command::new("playerctl").args(["-p", "spotify", "play"]).spawn();
+                    let url = format!("https://music.youtube.com/search?q={}", query);
+                    let _ = Command::new("xdg-open").arg(url).spawn();
+                },
+                "windows" => {
+                    let url = format!("spotify:search:{}", query);
+                    let _ = Command::new("cmd").args(["/C", "start", &url]).spawn();
+                },
+                _ => {}
+            }
         },
-        "windows" => {
-            let url = format!("spotify:search:{}", query);
-            let _ = Command::new("cmd").args(["/C", "start", &url]).spawn();
+        "PAUSE" | "STOP" => {
+            println!("\n--- AGENT ACTION: Memberhentikan Musik ---");
+            match os {
+                "macos" => {
+                    let _ = Command::new("osascript").arg("-e").arg("tell application \"Spotify\" to pause").spawn();
+                },
+                "linux" => {
+                    let _ = Command::new("playerctl").arg("pause").spawn();
+                },
+                "windows" => {
+                    let _ = Command::new("powershell").args(["-Command", "(New-Object -ComObject WScript.Shell).SendKeys([char]179)"]).spawn();
+                },
+                _ => {}
+            }
         },
-        _ => {
-            let url = format!("https://music.youtube.com/search?q={}", query);
-            let _ = Command::new("xdg-open").arg(url).spawn();
-        }
+        _ => {}
     }
 }

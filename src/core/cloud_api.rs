@@ -52,7 +52,6 @@ impl CloudAPI {
         dotenv::dotenv().ok();
         let gemini_key = env::var("GEMINI_API_KEY").unwrap_or_else(|_| "".to_string()).trim().to_string();
         let openai_key = env::var("OPENAI_API_KEY").unwrap_or_else(|_| "".to_string()).trim().to_string();
-        // Coba baca GROK (xAI) atau GROQ (Groq.com)
         let groq_key = env::var("GROQ_API_KEY")
             .or_else(|_| env::var("GROK_API_KEY"))
             .unwrap_or_else(|_| "".to_string())
@@ -68,19 +67,19 @@ impl CloudAPI {
     }
 
     pub async fn generate_response(&self, prompt: &str, history: &Vec<(String, String)>) -> anyhow::Result<String> {
-        let system_prompt = "
-PERSONA: Your name is 'Z'. A AI Agent. Smart, concise, and relaxed.
+        let system_prompt = "Namamu 'Z'. Kamu adalah asisten AI futuristik yang santai, pinter, dan gak kaku.
+    STYLE:
+    - LANGUAGE: Santai, gaul, dan mudah dimengerti. Gunakan bahasa yang sama dengan pengguna (Indonesia atau Inggris).
+    - Chill, tech-savvy friend personality.
+    - LANGUAGE RULE: Mirror the user's language.
+    - Default to English if the input is short or ambiguous.
+    - Stay concise. No yapping. No formal intros.
 
-STYLE:
-- Simple, concise, human-like. No yapping.
-- Get straight to the point.
+    ACTION RULES:
+    - [ACTION:PLAY_MUSIC:SONG_TITLE]: play song.
+    - [ACTION:PAUSE_MUSIC]: Pause music.
+    - [ACTION:STOP_MUSIC]: Stop music.";
 
-ACTION RULES:
-- [ACTION:PLAY_MUSIC:SONG_TITLE]: ONLY when user EXPLICITLY asks to play a song.
-- IMPORTANT: Send the [ACTION] tag ONLY ONCE per request. 
-- NEVER repeat the [ACTION] tag in follow-up messages (like 'Thank you' or 'Okay') if the song is already playing.
-- If you have already sent [ACTION:PLAY_MUSIC:...] in the previous turn, DO NOT send it again unless a NEW song is requested.
-";
         let mut errors = Vec::new();
 
         if !self.gemini_key.is_empty() {
@@ -88,12 +87,24 @@ ACTION RULES:
             for model in models {
                 let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", model, self.gemini_key);
                 let mut contents = Vec::new();
+
+                contents.push(GeminiContent {
+                    role: "user".to_string(),
+                    parts: vec![Part { text: format!("SYSTEM INSTRUCTION: {}", system_prompt) }],
+                });
+                contents.push(GeminiContent {
+                    role: "model".to_string(),
+                    parts: vec![Part { text: "Understood. I am Z, your chill tech-savvy assistant. I will mirror your language and follow your style rules.".to_string() }],
+                });
+
                 for (role, text) in history {
                     contents.push(GeminiContent {
                         role: if role == "Z" { "model".to_string() } else { "user".to_string() },
                         parts: vec![Part { text: text.clone() }],
                     });
                 }
+    
+
                 contents.push(GeminiContent {
                     role: "user".to_string(),
                     parts: vec![Part { text: prompt.to_string() }],
