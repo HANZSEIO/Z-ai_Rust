@@ -43,8 +43,8 @@ ELEVEN_LABS_API_KEY=your_elevenlabs_key
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/z_ai.git
-   cd z_ai
+   git clone https://github.com/HANZSEIO/Z-ai_Rust.git
+   cd Z-ai_Rust
    ```
 
 2. Run the application:
