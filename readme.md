@@ -45,6 +45,7 @@ ELEVEN_LABS_API_KEY=your_elevenlabs_key
    ```bash
    git clone https://github.com/yourusername/z_ai.git
    cd z_ai
+
    ```
 
 2. Run the application:
