@@ -32,7 +32,7 @@ impl AudioListener {
         if !self.elevenlabs_key.is_empty() {
             match self.speak_elevenlabs(text).await {
                 Ok(_) => return Ok(()),
-                Err(_) => {} 
+                Err(e) => eprintln!("[SYSTEM]: ElevenLabs Error -> {}", e),
             }
         }
 
@@ -40,7 +40,29 @@ impl AudioListener {
     }
 
     async fn speak_elevenlabs(&self, text: &str) -> anyhow::Result<()> {
-        let voice_id = "EXAVITQu4vr4xnSDxMaL"; 
+        let voices_res = self.client.get("https://api.elevenlabs.io/v1/voices")
+            .header("xi-api-key", &self.elevenlabs_key)
+            .send()
+            .await?;
+
+        let voices_json: Value = voices_res.json().await?;
+        
+        // DEBUG: Lihat isi response
+        println!("[DEBUG] ElevenLabs Voices: {}", voices_json);
+        
+        let voices = voices_json["voices"].as_array().ok_or_else(|| {
+            anyhow::anyhow!("Failed to read voice list. Response: {}", voices_json)
+        })?;
+        if voices.is_empty() {
+            return Err(anyhow::anyhow!("Your ElevenLabs Library is empty. Try adding 1 voice on the ElevenLabs website."));
+        }
+
+        // Cari 'Adam' atau 'Josh', kalo gak ada ambil yang pertama
+        let voice_id = voices.iter()
+            .find(|v| v["name"].as_str().unwrap_or("").contains("Adam") || v["name"].as_str().unwrap_or("").contains("Josh"))
+            .map(|v| v["voice_id"].as_str().unwrap_or(""))
+            .unwrap_or_else(|| voices[0]["voice_id"].as_str().unwrap_or(""));
+
         let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{}", voice_id);
 
         let res = self.client.post(url)
@@ -49,15 +71,18 @@ impl AudioListener {
                 "text": text,
                 "model_id": "eleven_multilingual_v2",
                 "voice_settings": {
-                    "stability": 0.4,
-                    "similarity_boost": 0.8
+                    "stability": 0.3,
+                    "similarity_boost": 0.8,
+                    "style": 0.5
                 }
             }))
             .send()
             .await?;
 
         if !res.status().is_success() {
-            return Err(anyhow::anyhow!("ElevenLabs Error"));
+            let status = res.status();
+            let err_body = res.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Status: {}, Body: {}", status, err_body));
         }
 
         let audio_data = res.bytes().await?;
@@ -194,7 +219,7 @@ impl AudioListener {
 
     async fn speech_to_text(&self, wav_data: Vec<u8>) -> anyhow::Result<String> {
         if self.groq_key.is_empty() {
-            return Err(anyhow::anyhow!("GROQ_API_KEY tidak ditemukan untuk Groq STT"));
+            return Err(anyhow::anyhow!("GROQ_API_KEY not found for Groq STT"));
         }
 
         let part = reqwest::multipart::Part::bytes(wav_data)

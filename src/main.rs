@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     println!("             Z-project ");
     println!("======================================\n");
     println!("OS: {}", std::env::consts::OS);
-    println!("Wake Words: {:?} (Aktif 60s)", wake_variants);
+    println!("Wake Words: {:?} (online 60s)", wake_variants);
     println!("(type 'exit' to exit)");
 
     let (tx_voice, mut rx_voice) = mpsc::channel::<String>(32);
@@ -56,9 +56,9 @@ async fn main() -> anyhow::Result<()> {
             _ = interval.tick() => {
                 if is_active {
                     let remaining = active_until.unwrap().duration_since(Instant::now()).as_secs();
-                    print!("\r[Z]: ACTIVE MODE ({}s) - Silakan bicara... ", remaining);
+                    print!("\r[Z]: ACTIVE MODE ({}s) - Please speak... ", remaining);
                 } else {
-                    print!("\r[Z]: IDLE - Sebut 'Z' untuk memulai... ");
+                    print!("\r[Z]: IDLE - say 'Z' to activate... ");
                 }
                 io::stdout().flush()?;
                 continue;
@@ -79,16 +79,16 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 if !is_active {
-                    print!("\r[DEBUG] Z mendengar: \"{}\"          ", text);
+                    print!("\r[DEBUG] Z heard: \"{}\"          ", text);
                     io::stdout().flush()?;
                     
                     let found_wake = wake_variants.iter().any(|&v| text_low.contains(v));
                     if found_wake {
                         if std::env::consts::OS == "macos" {
-                            let _ = Command::new("afplay").arg("/System/Library/Sounds/Tink.aiff").spawn();
+                            let _ = Command::new("afplay").arg("/System/Library/Sounds/Basso.aiff").spawn();
                         }
                         
-                        println!("\n[SYSTEM]: Wake word terdeteksi!");
+                        println!("\n[SYSTEM]: Wake word detected!");
                         active_until = Some(Instant::now() + Duration::from_secs(60));
                         text 
                     } else {
@@ -112,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
         println!("\n[YOU]: {}", input);
         
         if std::env::consts::OS == "macos" {
-            let _ = Command::new("afplay").arg("/System/Library/Sounds/Pop.aiff").spawn();
+            let _ = Command::new("afplay").arg("/System/Library/Sounds/Funk.aiff").spawn();
         }
         
         print!("[Z] Thinking...");
