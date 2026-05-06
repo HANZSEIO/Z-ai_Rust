@@ -1,4 +1,4 @@
-# Z-AI: The Savage Personal Assistant
+# Z-AI:Personal Assistant
 
 **Z-AI** is a high-performance, multi-modal personal assistant built in Rust. Unlike traditional assistants, Z is designed with a "Toxic, Savage, and Unfiltered" personality, offering a unique (and often roasting) interaction experience.
 
