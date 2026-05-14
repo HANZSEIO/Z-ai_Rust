@@ -73,6 +73,6 @@ ELEVEN_LABS_API_KEY=your_elevenlabs_key
 Z-AI is configured to be **toxic and unfiltered**. It is intended for entertainment purposes and "toxic friend" simulations. But you can configure manualy Use at your own risk :).
 
 ---
-*Built with 🦀 and a lot of attitude.*
+*Built with attitude.*
 
 by HANZS -
