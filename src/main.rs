@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
+use cpal::traits::{HostTrait, DeviceTrait};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,6 +21,16 @@ async fn main() -> anyhow::Result<()> {
     println!("======================================\n");
     println!("OS: {}", std::env::consts::OS);
     println!("Wake Words: {:?} (Aktif 60s)", wake_variants);
+
+    let host = cpal::default_host();
+    if let Ok(devices) = host.output_devices() {
+        println!("Detected Output Devices:");
+        for (i, dev) in devices.enumerate() {
+            if let Ok(name) = dev.name() {
+                println!("  {}. {}", i, name);
+            }
+        }
+    }
     println!("(type 'exit' to exit)");
 
     let (tx_voice, mut rx_voice) = mpsc::channel::<String>(32);
@@ -85,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
                     let found_wake = wake_variants.iter().any(|&v| text_low.contains(v));
                     if found_wake {
                         if std::env::consts::OS == "macos" {
-                            let _ = Command::new("afplay").arg("/System/Library/Sounds/Tink.aiff").spawn();
+                            let _ = Command::new("afplay").arg("/System/Library/Sounds/Basso.aiff").spawn();
                         }
                         
                         println!("\n[SYSTEM]: Wake word terdeteksi!");
@@ -112,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
         println!("\n[YOU]: {}", input);
         
         if std::env::consts::OS == "macos" {
-            let _ = Command::new("afplay").arg("/System/Library/Sounds/Pop.aiff").spawn();
+            let _ = Command::new("afplay").arg("/System/Library/Sounds/Funk.aiff").spawn();
         }
         
         print!("[Z] Thinking...");
@@ -150,6 +161,8 @@ async fn main() -> anyhow::Result<()> {
                     println!("[Z]: {}", clean_text);
                     let listener_tts = Arc::clone(&listener);
                     let text_to_speak = clean_text.clone();
+                    // Gunakan block_on agar dia menyelesaikan bicara sebelum loop lanjut (opsional)
+                    // Tapi di sini kita tetap spawn agar timer tetap jalan
                     tokio::spawn(async move {
                         let _ = listener_tts.speak(&text_to_speak).await;
                     });

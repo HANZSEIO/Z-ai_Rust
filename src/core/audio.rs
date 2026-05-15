@@ -2,7 +2,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use hound::{WavSpec, WavWriter};
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 use reqwest::Client;
 use serde_json::{Value, json};
 use rodio::{Decoder, OutputStream, Sink};
@@ -32,15 +32,37 @@ impl AudioListener {
         if !self.elevenlabs_key.is_empty() {
             match self.speak_elevenlabs(text).await {
                 Ok(_) => return Ok(()),
-                Err(_) => {} 
+                Err(e) => eprintln!("[SYSTEM]: ElevenLabs Error -> {}", e),
             }
+        }
+
+        if std::env::consts::OS == "linux" && std::path::Path::new("./piper").exists() {
+            if self.speak_piper(text).await.is_ok() { return Ok(()); }
         }
 
         self.speak_system(text).await
     }
 
     async fn speak_elevenlabs(&self, text: &str) -> anyhow::Result<()> {
-        let voice_id = "EXAVITQu4vr4xnSDxMaL"; 
+        let voices_res = self.client.get("https://api.elevenlabs.io/v1/voices")
+            .header("xi-api-key", &self.elevenlabs_key)
+            .send()
+            .await?;
+
+        let voices_json: Value = voices_res.json().await?;
+        let voices = voices_json["voices"].as_array().ok_or_else(|| {
+            anyhow::anyhow!("ElevenLabs error. Response: {}", voices_json)
+        })?;
+        
+        if voices.is_empty() {
+            return Err(anyhow::anyhow!("Library empty"));
+        }
+
+        let voice_id = voices.iter()
+            .find(|v| v["name"].as_str().unwrap_or("").contains("Adam") || v["name"].as_str().unwrap_or("").contains("Josh"))
+            .map(|v| v["voice_id"].as_str().unwrap_or(""))
+            .unwrap_or_else(|| voices[0]["voice_id"].as_str().unwrap_or(""));
+
         let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{}", voice_id);
 
         let res = self.client.post(url)
@@ -49,26 +71,53 @@ impl AudioListener {
                 "text": text,
                 "model_id": "eleven_multilingual_v2",
                 "voice_settings": {
-                    "stability": 0.4,
-                    "similarity_boost": 0.8
+                    "stability": 0.3,
+                    "similarity_boost": 0.8,
+                    "style": 0.5
                 }
             }))
             .send()
             .await?;
 
         if !res.status().is_success() {
-            return Err(anyhow::anyhow!("ElevenLabs Error"));
+            let status = res.status();
+            let err_body = res.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Status: {}, Body: {}", status, err_body));
         }
 
         let audio_data = res.bytes().await?;
         self.play_audio(audio_data.to_vec()).await
     }
 
+    async fn speak_piper(&self, text: &str) -> anyhow::Result<()> {
+        let clean_text = text.replace("\"", "").replace("'", "");
+        let mut child = std::process::Command::new("./piper")
+            .args(["--model", "models/en_US-lessac-medium.onnx", "--output_raw"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()?;
+
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(clean_text.as_bytes())?;
+        drop(stdin);
+
+        let mut stdout = child.stdout.take().unwrap();
+        let mut buffer = Vec::new();
+        stdout.read_to_end(&mut buffer)?;
+        
+        self.play_audio(buffer).await
+    }
+
     async fn play_audio(&self, audio_data: Vec<u8>) -> anyhow::Result<()> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
+        let (_stream, stream_handle) = OutputStream::try_default()
+            .map_err(|e| anyhow::anyhow!("Audio error: {}", e))?;
+        
+        let sink = Sink::try_new(&stream_handle)
+            .map_err(|e| anyhow::anyhow!("Sink error: {}", e))?;
+            
         let cursor = Cursor::new(audio_data);
-        let source = Decoder::new(cursor)?;
+        let source = Decoder::new(cursor)
+            .map_err(|e| anyhow::anyhow!("Decode error: {}", e))?;
         
         sink.append(source);
         sink.sleep_until_end();
@@ -107,7 +156,7 @@ impl AudioListener {
     pub async fn listen_and_record(&self) -> anyhow::Result<String> {
         let host = cpal::default_host();
         let device = host.default_input_device()
-            .ok_or_else(|| anyhow::anyhow!("No input device found"))?;
+            .ok_or_else(|| anyhow::anyhow!("No device"))?;
 
         let config = device.default_input_config()?;
         let sample_rate: u32 = config.sample_rate().into(); 
@@ -194,7 +243,7 @@ impl AudioListener {
 
     async fn speech_to_text(&self, wav_data: Vec<u8>) -> anyhow::Result<String> {
         if self.groq_key.is_empty() {
-            return Err(anyhow::anyhow!("GROQ_API_KEY tidak ditemukan untuk Groq STT"));
+            return Err(anyhow::anyhow!("No key"));
         }
 
         let part = reqwest::multipart::Part::bytes(wav_data)
@@ -216,7 +265,7 @@ impl AudioListener {
             Ok(json["text"].as_str().unwrap_or_default().to_string())
         } else {
             let err_text = res.text().await?;
-            Err(anyhow::anyhow!("Groq STT Error: {}", err_text))
-        }
+            Err(anyhow::anyhow!("Groq Error: {}", err_text))
+               }
     }
 }

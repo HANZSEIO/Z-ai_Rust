@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+# Z-AI: The Savage Personal Assistant
+=======
 # Z-AI:Personal Assistant
+>>>>>>> origin/master
 
 **Z-AI** is a high-performance, multi-modal personal assistant built in Rust. Unlike traditional assistants, Z is designed with a "Toxic, Savage, and Unfiltered" personality, offering a unique (and often roasting) interaction experience.
 
@@ -43,8 +47,13 @@ ELEVEN_LABS_API_KEY=your_elevenlabs_key
 
 1. Clone the repository:
    ```bash
+<<<<<<< HEAD
+   git clone https://github.com/yourusername/z_ai.git
+   cd z_ai
+=======
    git clone https://github.com/HANZSEIO/Z-ai_Rust.git
    cd Z-ai_Rust
+>>>>>>> origin/master
    ```
 
 2. Run the application:
@@ -70,9 +79,16 @@ ELEVEN_LABS_API_KEY=your_elevenlabs_key
 
 ## Disclaimer
 
+<<<<<<< HEAD
+Z-AI is configured to be **toxic and unfiltered**. It is intended for entertainment purposes and "toxic friend" simulations. Use at your own risk.
+
+---
+*Built with 🦀 and a lot of attitude.*
+=======
 Z-AI is configured to be **toxic and unfiltered**. It is intended for entertainment purposes and "toxic friend" simulations. But you can configure manualy Use at your own risk :).
 
 ---
 *Built with attitude.*
 
 by HANZS -
+>>>>>>> origin/master
