@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
+use cpal::traits::{HostTrait, DeviceTrait};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,7 +20,17 @@ async fn main() -> anyhow::Result<()> {
     println!("             Z-project ");
     println!("======================================\n");
     println!("OS: {}", std::env::consts::OS);
-    println!("Wake Words: {:?} (online 60s)", wake_variants);
+    println!("Wake Words: {:?} (Aktif 60s)", wake_variants);
+
+    let host = cpal::default_host();
+    if let Ok(devices) = host.output_devices() {
+        println!("Detected Output Devices:");
+        for (i, dev) in devices.enumerate() {
+            if let Ok(name) = dev.name() {
+                println!("  {}. {}", i, name);
+            }
+        }
+    }
     println!("(type 'exit' to exit)");
 
     let (tx_voice, mut rx_voice) = mpsc::channel::<String>(32);
@@ -56,9 +67,9 @@ async fn main() -> anyhow::Result<()> {
             _ = interval.tick() => {
                 if is_active {
                     let remaining = active_until.unwrap().duration_since(Instant::now()).as_secs();
-                    print!("\r[Z]: ACTIVE MODE ({}s) - Please speak... ", remaining);
+                    print!("\r[Z]: ACTIVE MODE ({}s) - Silakan bicara... ", remaining);
                 } else {
-                    print!("\r[Z]: IDLE - say 'Z' to activate... ");
+                    print!("\r[Z]: IDLE - Sebut 'Z' untuk memulai... ");
                 }
                 io::stdout().flush()?;
                 continue;
@@ -79,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 if !is_active {
-                    print!("\r[DEBUG] Z heard: \"{}\"          ", text);
+                    print!("\r[DEBUG] Z mendengar: \"{}\"          ", text);
                     io::stdout().flush()?;
                     
                     let found_wake = wake_variants.iter().any(|&v| text_low.contains(v));
@@ -88,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                             let _ = Command::new("afplay").arg("/System/Library/Sounds/Basso.aiff").spawn();
                         }
                         
-                        println!("\n[SYSTEM]: Wake word detected!");
+                        println!("\n[SYSTEM]: Wake word terdeteksi!");
                         active_until = Some(Instant::now() + Duration::from_secs(60));
                         text 
                     } else {
@@ -150,6 +161,8 @@ async fn main() -> anyhow::Result<()> {
                     println!("[Z]: {}", clean_text);
                     let listener_tts = Arc::clone(&listener);
                     let text_to_speak = clean_text.clone();
+                    // Gunakan block_on agar dia menyelesaikan bicara sebelum loop lanjut (opsional)
+                    // Tapi di sini kita tetap spawn agar timer tetap jalan
                     tokio::spawn(async move {
                         let _ = listener_tts.speak(&text_to_speak).await;
                     });
